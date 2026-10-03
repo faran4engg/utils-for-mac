@@ -23,3 +23,12 @@ git pull                                               # to get updates
 ```
 
 `install.sh` links every tool into `~/bin` and adds `~/bin` to your PATH if needed. Run it again any time: after a `git pull`, after adding a tool, or if a command says "no such file". Since the commands are links to the scripts in this folder, edits to a script take effect right away. No reinstall needed.
+
+
+## Sequence to use
+
+1. dupfinder
+2. fixdates --go
+3. fixdates --sync-finder-dates --go
+4. vidshrink --force --max-height 1080 --go
+5. photosort --go
