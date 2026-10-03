@@ -7,6 +7,8 @@
 #   dest          where other files go (default: "<folder> (other files)", next to it)
 #   --go          actually move the files (without it you only get a preview)
 #   --by-type     group moved files by extension (pdf/, zip/, ...) instead of keeping their path
+#   --check-media also check the contents of photos/videos: move ones that are empty (0 bytes)
+#                 or aren't really a photo/video (broken, wrong extension). Slower.
 #   -a, --all     include hidden files and folders
 #   --undo LOG    move everything back, using the log from an earlier --go run
 #   -h, --help    show this help
@@ -22,14 +24,15 @@ human() { awk -v b="$1" 'BEGIN { split("B KB MB GB TB", u, " "); i = 1; while (b
   if (i == 1) printf "%d B", b; else printf "%.1f %s", b, u[i] }'; }
 abspath() { local p="$1"; case "$p" in /*) ;; *) p="$PWD/$p" ;; esac; if [ -d "$p" ]; then (cd "$p" && pwd -P); else echo "${p%/}"; fi; }
 
-go=0; bytype=0; all=0; undo=""; args=()
+go=0; bytype=0; checkmedia=0; all=0; undo=""; args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --go)       go=1 ;;
     --by-type)  bytype=1 ;;
+    --check-media) checkmedia=1 ;;
     -a|--all)   all=1 ;;
     --undo)     undo="$2"; shift ;;
-    -h|--help)  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)         die "Unknown option: $1 (try -h)" ;;
     *)          args+=("$1") ;;
   esac
@@ -72,7 +75,7 @@ find "$src" \( -type d ! -path "$src" \( "${prune[@]}" \) -prune \) -o \( -type 
 [ -s "$work/all.txt" ] || { echo "No files found in $src."; exit 0; }
 
 # Sort by extension: media, sidecar, other, or unknown (= check contents)
-awk -v unk="$work/unknown.txt" '
+awk -v unk="$work/unknown.txt" -v med="$work/media.txt" -v checkmedia="$checkmedia" '
   BEGIN {
     n = split("jpg jpeg jpe jfif heic heif png gif webp tif tiff bmp avif svg dng raw cr2 cr3 crw nef nrw arw srf sr2 orf rw2 raf srw pef x3f 3fr erf kdc mrw rwl iiq psd " \
               "mov mp4 m4v avi mkv mts m2ts ts 3gp 3g2 wmv mpg mpeg mpe vob flv webm ogv dv insv lrv", a, " ")
@@ -82,15 +85,26 @@ awk -v unk="$work/unknown.txt" '
     for (i = 1; i <= n; i++) O[b[i]] = 1
   }
   { k = split($0, p, "/"); e = ""; if (match(p[k], /\.[^.]+$/) && RSTART > 1) e = tolower(substr(p[k], RSTART + 1))
-    if (e in K) next
+    if (e in K) { if (checkmedia) print > med; next }
     if (e in O) { print; next }
     print > unk }' "$work/all.txt" > "$work/other.txt"
-touch "$work/unknown.txt"
+touch "$work/unknown.txt" "$work/media.txt" "$work/broken.tsv"
 nunk=$(wc -l < "$work/unknown.txt" | tr -d ' ')
 if [ "$nunk" -gt 0 ]; then
   echo "Checking the contents of $nunk file(s) with an unknown or missing extension..."
   file --mime-type -b -f "$work/unknown.txt" > "$work/unknown.mime" 2>/dev/null
   paste "$work/unknown.txt" "$work/unknown.mime" | awk -F'\t' '$2 !~ /^(image|video)\// { print $1 }' >> "$work/other.txt"
+fi
+nmed=$(wc -l < "$work/media.txt" | tr -d ' ')
+if [ "$nmed" -gt 0 ]; then
+  echo "Checking the contents of $nmed photo/video file(s)..."
+  file --mime-type -b -f "$work/media.txt" > "$work/media.mime" 2>/dev/null
+  # svg is often reported as xml/text, which is fine
+  paste "$work/media.txt" "$work/media.mime" | awk -F'\t' '
+    $2 ~ /^(image|video)\// { next }
+    tolower($1) ~ /\.svg$/ && $2 ~ /svg|xml|plain|html/ { next }
+    { print $1 "\t" ($2 == "inode/x-empty" ? "empty" : "not media") }' > "$work/broken.tsv"
+  cut -f1 "$work/broken.tsv" >> "$work/other.txt"
 fi
 
 nall=$(wc -l < "$work/all.txt" | tr -d ' ')
@@ -105,12 +119,14 @@ echo "Files scanned: $nall. Photos/videos staying: $((nall - nmove)). Other file
 if [ $IS_MAC -eq 1 ]; then sargs=(-f '%z'); else sargs=(-c '%s'); fi
 export KM_SRC="$src" KM_DEST="$dest"
 tr '\n' '\0' < "$work/other.txt" | xargs -0 stat "${sargs[@]}" > "$work/sizes.txt"
-paste "$work/other.txt" "$work/sizes.txt" | awk -F'\t' -v bytype="$bytype" '
+paste "$work/other.txt" "$work/sizes.txt" | awk -F'\t' -v bytype="$bytype" -v brk="$work/broken.tsv" '
+  BEGIN { while ((getline l < brk) > 0) { split(l, x, "\t"); B[x[1]] = x[2] } }
   { p = $1; rel = substr(p, length(ENVIRON["KM_SRC"]) + 2); k = split(rel, parts, "/")
     e = ""; if (match(parts[k], /\.[^.]+$/) && RSTART > 1) e = tolower(substr(parts[k], RSTART + 1))
     if (bytype) t = ENVIRON["KM_DEST"] "/" (e == "" ? "no extension" : e)
     else { t = ENVIRON["KM_DEST"]; if (k > 1) t = t "/" substr(rel, 1, length(rel) - length(parts[k]) - 1) }
-    print p "\t" t "\t" $2 "\t" (e == "" ? "(no extension)" : e) }' > "$work/plan.tsv"
+    label = (e == "" ? "(no extension)" : e); if (p in B) label = label " (" B[p] ")"
+    print p "\t" t "\t" $2 "\t" label }' > "$work/plan.tsv"
 
 total=$(awk -F'\t' '{ s += $3 } END { printf "%.0f", s }' "$work/plan.tsv")
 echo
