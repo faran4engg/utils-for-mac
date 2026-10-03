@@ -105,7 +105,7 @@ nplan=$(wc -l < "$work/plan.tsv" | tr -d ' ')
 total=$(awk -F'\t' '{ s += $2 } END { printf "%.0f", s }' "$work/plan.tsv")
 echo
 echo "Videos to shrink: $nplan ($(human "$total") in total)"
-[ "$already" -gt 0 ] && echo "Already HEVC, skipped:   $already  (use --force to include, or --max-height to downsize)"
+[ "$already" -gt 0 ] && echo "Already HEVC, skipped:   $already  (most iPhone videos; use --force to include them, or --max-height 1080)"
 [ "$small" -gt 0 ]   && echo "Smaller than $min, skipped: $small"
 [ "$broken" -gt 0 ]  && echo "Unreadable, skipped:     $broken"
 [ "$nplan" -eq 0 ] && { echo "Nothing to do."; exit 0; }
@@ -173,11 +173,24 @@ while IFS=$'\t' read -r f size codec w h pix dur scale; do
     if [ $ten -eq 1 ]; then venc+=(-pix_fmt yuv420p10le); else venc+=(-pix_fmt yuv420p); fi
   fi
   [ "$scale" -eq 1 ] && vf=(-vf "scale=w='if(gt(iw,ih),-2,$maxh)':h='if(gt(iw,ih),$maxh,-2)'")
+  # Keep the colour information (needed for iPhone HDR / HLG videos to look right)
+  cinfo=$(ffprobe -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space,color_range \
+          -of default=nw=1 "$f" 2>/dev/null)
+  cp=$(sed -n 's/^color_primaries=//p' <<< "$cinfo"); ct=$(sed -n 's/^color_transfer=//p' <<< "$cinfo")
+  cs=$(sed -n 's/^color_space=//p' <<< "$cinfo");     cr=$(sed -n 's/^color_range=//p' <<< "$cinfo")
+  cflags=(); x265col=""
+  known() { [ -n "$1" ] && [ "$1" != "unknown" ] && [ "$1" != "reserved" ]; }
+  if known "$cp" && known "$ct" && known "$cs"; then
+    cflags=(-color_primaries "$cp" -color_trc "$ct" -colorspace "$cs")
+    x265col=":colorprim=$cp:transfer=$ct:colormatrix=$cs"
+  fi
+  known "$cr" && cflags+=(-color_range "$cr")
+  [ $fast -eq 0 ] && venc=(-c:v libx265 -crf "$crf" -preset medium -x265-params "log-level=error$x265col" "${venc[@]:8}")
   acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$f" 2>/dev/null | head -1)
   if [ "$acodec" = "aac" ]; then aenc=(-c:a copy); else aenc=(-c:a aac -b:a 160k); fi
 
   if ! ffmpeg -nostdin -hide_banner -loglevel error -stats -i "$f" -map 0:v:0 -map '0:a?' \
-        -map_metadata 0 -movflags +use_metadata_tags+faststart "${vf[@]}" "${venc[@]}" "${aenc[@]}" \
+        -map_metadata 0 -movflags +use_metadata_tags+faststart "${vf[@]}" "${venc[@]}" "${cflags[@]}" "${aenc[@]}" \
         -tag:v hvc1 -y "$tmpfile"; then
     echo "  Failed to encode. Original kept."; rm -f "$tmpfile"; tmpfile=""; failed=$((failed + 1)); continue
   fi
