@@ -9,6 +9,7 @@ Small command-line tools for cleaning up and organising photos, videos and files
 | [filesummary](filesummary/) | Count files by extension and real type |
 | [fixdates](fixdates/) | Fix wrong photo/video dates |
 | [keepmedia](keepmedia/) | Leave only photos and videos in a folder |
+| [movevids](movevids/) | Collect all videos into one `videos` folder |
 | [photosort](photosort/) | Sort photos into folders |
 | [setdate](setdate/) | Set a date on photos/videos |
 | [vidshrink](vidshrink/) | Shrink videos |
