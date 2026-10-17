@@ -11,6 +11,7 @@ Small command-line tools for cleaning up and organising photos, videos and files
 | [keepmedia](keepmedia/) | Leave only photos and videos in a folder |
 | [movevids](movevids/) | Collect all videos into one `videos` folder |
 | [photosort](photosort/) | Sort photos into folders |
+| [removefiles](removefiles/) | Remove all files with an extension (to the Trash) |
 | [setdate](setdate/) | Set a date on photos/videos |
 | [vidshrink](vidshrink/) | Shrink videos |
 
