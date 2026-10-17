@@ -8,6 +8,7 @@ Small command-line tools for cleaning up and organising photos, videos and files
 | [dupfinder](dupfinder/) | Find duplicate files |
 | [filesummary](filesummary/) | Count files by extension and real type |
 | [fixdates](fixdates/) | Fix wrong photo/video dates |
+| [imgcompress](imgcompress/) | Make JPEG/PNG images smaller |
 | [keepmedia](keepmedia/) | Leave only photos and videos in a folder |
 | [movevids](movevids/) | Collect all videos into one `videos` folder |
 | [photosort](photosort/) | Sort photos into folders |
